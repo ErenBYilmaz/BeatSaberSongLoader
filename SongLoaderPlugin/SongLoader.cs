@@ -186,6 +186,10 @@ namespace SongLoaderPlugin
 				levelListViewController.SetPrivateField("_selectedLevel", null);
 				levelListViewController.HandleLevelListTableViewDidSelectRow(null, levels.IndexOf(customLevel));
 			};
+			
+			
+			LoadBeatMap(customLevel.customSongInfo, customLevel);
+			LoadSprite(customLevel.customSongInfo.path + "/" + customLevel.customSongInfo.coverImagePath, customLevel);
 
 			customLevel.FixBPMAndGetNoteJumpMovementSpeed();
 			StartCoroutine(LoadAudio(
@@ -376,6 +380,42 @@ namespace SongLoaderPlugin
 			callback.Invoke();
 			customLevel.AudioClipLoading = false;
 		}
+		
+		private void LoadBeatMap(CustomSongInfo song, CustomLevel customLevel)
+		{
+			var difficultyBeatmaps = new List<LevelSO.DifficultyBeatmap>();
+			foreach (var diffBeatmap in song.difficultyLevels)
+			{
+				try
+				{
+					var difficulty = diffBeatmap.difficulty.ToEnum(BeatmapDifficulty.Normal);
+					diffBeatmap.json = File.ReadAllText(song.path + "/" + diffBeatmap.jsonPath);
+
+					if (string.IsNullOrEmpty(diffBeatmap.json))
+					{
+						Log("Couldn't find or parse difficulty json " + song.path + "/" + diffBeatmap.jsonPath, LogSeverity.Warn);
+						continue;
+					}
+
+					var newBeatmapData = _beatmapDataPool.Get();
+					newBeatmapData.SetJsonData(diffBeatmap.json);
+
+					var newDiffBeatmap = new CustomLevel.CustomDifficultyBeatmap(customLevel, difficulty,
+						diffBeatmap.difficultyRank, diffBeatmap.noteJumpMovementSpeed, newBeatmapData);
+					difficultyBeatmaps.Add(newDiffBeatmap);
+				}
+				catch (Exception e)
+				{
+					Log("Error parsing difficulty level in song: " + song.path, LogSeverity.Warn);
+					Log(e.Message, LogSeverity.Warn);
+				}
+			}
+
+			if (difficultyBeatmaps.Count == 0) return;
+
+			customLevel.SetDifficultyBeatmaps(difficultyBeatmaps.ToArray());
+			customLevel.InitData();
+		}
 
 		private void RetrieveAllSongs(bool fullRefresh)
 		{
@@ -546,43 +586,14 @@ namespace SongLoaderPlugin
 		{
 			try
 			{
+				// Create new level and initialize with temporary audio clip
 				var newLevel = _customLevelPool.Get();
 				newLevel.Init(song);
 				newLevel.SetAudioClip(TemporaryAudioClip);
 
-				var difficultyBeatmaps = new List<LevelSO.DifficultyBeatmap>();
-				foreach (var diffBeatmap in song.difficultyLevels)
-				{
-					try
-					{
-						var difficulty = diffBeatmap.difficulty.ToEnum(BeatmapDifficulty.Normal);
-
-						if (string.IsNullOrEmpty(diffBeatmap.json))
-						{
-							Log("Couldn't find or parse difficulty json " + song.path + "/" + diffBeatmap.jsonPath, LogSeverity.Warn);
-							continue;
-						}
-
-						var newBeatmapData = _beatmapDataPool.Get();
-						newBeatmapData.SetJsonData(diffBeatmap.json);
-
-						var newDiffBeatmap = new CustomLevel.CustomDifficultyBeatmap(newLevel, difficulty,
-							diffBeatmap.difficultyRank, diffBeatmap.noteJumpMovementSpeed, newBeatmapData);
-						difficultyBeatmaps.Add(newDiffBeatmap);
-					}
-					catch (Exception e)
-					{
-						Log("Error parsing difficulty level in song: " + song.path, LogSeverity.Warn);
-						Log(e.Message, LogSeverity.Warn);
-					}
-				}
-
-				if (difficultyBeatmaps.Count == 0) return null;
-
-				newLevel.SetDifficultyBeatmaps(difficultyBeatmaps.ToArray());
-				newLevel.InitData();
-
-				LoadSprite(song.path + "/" + song.coverImagePath, newLevel);
+				// Initialize beat maps with empty list, they will be loaded later together with the cover images
+				newLevel.SetDifficultyBeatmaps(new List<LevelSO.DifficultyBeatmap>().ToArray());
+				
 				return newLevel;
 			}
 			catch (Exception e)
