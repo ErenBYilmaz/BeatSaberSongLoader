@@ -43,6 +43,7 @@ namespace SongLoaderPlugin
 		public string GetIdentifier()
 		{
 			var combinedJson = "";
+			/*
 			foreach (var diffLevel in difficultyLevels)
 			{
 				if (!File.Exists(path + "/" + diffLevel.jsonPath))
@@ -52,9 +53,9 @@ namespace SongLoaderPlugin
 				
 				diffLevel.json = File.ReadAllText(path + "/" + diffLevel.jsonPath);
 				combinedJson += diffLevel.json;
-			}
+			}*/
 
-			var hash = Utils.CreateMD5FromString(combinedJson);
+			var hash = Utils.CreateMD5FromString(combinedJson); 
 			levelId = hash + "∎" + string.Join("∎", songName, songSubName, GetSongAuthor(), beatsPerMinute.ToString()) + "∎";
 			return levelId;
 		}

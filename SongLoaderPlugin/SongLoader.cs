@@ -186,6 +186,10 @@ namespace SongLoaderPlugin
 				levelListViewController.SetPrivateField("_selectedLevel", null);
 				levelListViewController.HandleLevelListTableViewDidSelectRow(null, levels.IndexOf(customLevel));
 			};
+			
+			
+			Log("Attempting to LoadBeatMap : " + customLevel.customSongInfo.path, LogSeverity.Warn);
+			LoadBeatMap(customLevel.customSongInfo, customLevel);
 
 			customLevel.FixBPMAndGetNoteJumpMovementSpeed();
 			StartCoroutine(LoadAudio(
@@ -376,6 +380,43 @@ namespace SongLoaderPlugin
 			callback.Invoke();
 			customLevel.AudioClipLoading = false;
 		}
+		
+		private void LoadBeatMap(CustomSongInfo song, CustomLevel customLevel)
+		{
+			var difficultyBeatmaps = new List<LevelSO.DifficultyBeatmap>();
+			foreach (var diffBeatmap in song.difficultyLevels)
+			{
+				try
+				{
+					var difficulty = diffBeatmap.difficulty.ToEnum(BeatmapDifficulty.Normal);
+					diffBeatmap.json = File.ReadAllText(song.path + "/" + diffBeatmap.jsonPath);
+
+					Log("diffBeatmap.json: " + diffBeatmap.json, LogSeverity.Warn);
+					if (string.IsNullOrEmpty(diffBeatmap.json))
+					{
+						Log("Couldn't find or parse difficulty json " + song.path + "/" + diffBeatmap.jsonPath, LogSeverity.Warn);
+						continue;
+					}
+
+					var newBeatmapData = _beatmapDataPool.Get();
+					newBeatmapData.SetJsonData(diffBeatmap.json);
+
+					var newDiffBeatmap = new CustomLevel.CustomDifficultyBeatmap(customLevel, difficulty,
+						diffBeatmap.difficultyRank, diffBeatmap.noteJumpMovementSpeed, newBeatmapData);
+					difficultyBeatmaps.Add(newDiffBeatmap);
+				}
+				catch (Exception e)
+				{
+					Log("Error parsing difficulty level in song: " + song.path, LogSeverity.Warn);
+					Log(e.Message, LogSeverity.Warn);
+				}
+			}
+
+			if (difficultyBeatmaps.Count == 0) return;
+
+			customLevel.SetDifficultyBeatmaps(difficultyBeatmaps.ToArray());
+			customLevel.InitData();
+		}
 
 		private void RetrieveAllSongs(bool fullRefresh)
 		{
@@ -432,6 +473,8 @@ namespace SongLoaderPlugin
 							Log("Error reading zip " + songZip, LogSeverity.Warn);
 						}
 					}
+					
+					Log("Extracted zipped songs to cache after " + stopwatch.Elapsed.Seconds + " seconds");
 
 					var songFolders = Directory.GetDirectories(path + "/CustomSongs").ToList();
 					
@@ -493,6 +536,7 @@ namespace SongLoaderPlugin
 							}
 						}
 					}
+					Log("Loaded all songs after " + stopwatch.Elapsed.Seconds + " seconds");
 
 					foreach (var song in cachedSongs)
 					{
@@ -503,6 +547,7 @@ namespace SongLoaderPlugin
 							Directory.Delete(song, true);
 						}
 					}
+					Log("Removed old cached songs after " + stopwatch.Elapsed.Seconds + " seconds");
 
 				}
 				catch (Exception e)
@@ -546,43 +591,16 @@ namespace SongLoaderPlugin
 		{
 			try
 			{
+				// Create new level and initialize with temporary audio clip
 				var newLevel = _customLevelPool.Get();
 				newLevel.Init(song);
 				newLevel.SetAudioClip(TemporaryAudioClip);
 
-				var difficultyBeatmaps = new List<LevelSO.DifficultyBeatmap>();
-				foreach (var diffBeatmap in song.difficultyLevels)
-				{
-					try
-					{
-						var difficulty = diffBeatmap.difficulty.ToEnum(BeatmapDifficulty.Normal);
+				// initialize beatmaps with empty list
+				newLevel.SetDifficultyBeatmaps(new List<LevelSO.DifficultyBeatmap>().ToArray());
 
-						if (string.IsNullOrEmpty(diffBeatmap.json))
-						{
-							Log("Couldn't find or parse difficulty json " + song.path + "/" + diffBeatmap.jsonPath, LogSeverity.Warn);
-							continue;
-						}
-
-						var newBeatmapData = _beatmapDataPool.Get();
-						newBeatmapData.SetJsonData(diffBeatmap.json);
-
-						var newDiffBeatmap = new CustomLevel.CustomDifficultyBeatmap(newLevel, difficulty,
-							diffBeatmap.difficultyRank, diffBeatmap.noteJumpMovementSpeed, newBeatmapData);
-						difficultyBeatmaps.Add(newDiffBeatmap);
-					}
-					catch (Exception e)
-					{
-						Log("Error parsing difficulty level in song: " + song.path, LogSeverity.Warn);
-						Log(e.Message, LogSeverity.Warn);
-					}
-				}
-
-				if (difficultyBeatmaps.Count == 0) return null;
-
-				newLevel.SetDifficultyBeatmaps(difficultyBeatmaps.ToArray());
-				newLevel.InitData();
-
-				LoadSprite(song.path + "/" + song.coverImagePath, newLevel);
+				// do not load cover
+				// LoadSprite(song.path + "/" + song.coverImagePath, newLevel);
 				return newLevel;
 			}
 			catch (Exception e)
@@ -633,11 +651,26 @@ namespace SongLoaderPlugin
 			songInfo.difficultyLevels = diffLevels.ToArray();
 			return songInfo;
 		}
-
+		
 		private void Log(string message, LogSeverity severity = LogSeverity.Info)
 		{
 			if (severity < _minLogSeverity) return;
 			Console.WriteLine("Song Loader [" + severity.ToString().ToUpper() + "]: " + message);
+			try
+			{
+				using (StreamWriter w = File.AppendText("log.txt"))
+				{
+						w.Write("\r\nLog Entry : ");
+						w.WriteLine("{0} {1}", DateTime.Now.ToLongTimeString(),
+							DateTime.Now.ToLongDateString());
+						w.WriteLine("  :");
+						w.WriteLine("  :{0}", message);
+						w.WriteLine("-------------------------------");
+				}
+			}
+			catch (Exception ex)
+			{
+			}
 		}
 
 		private void Update()
